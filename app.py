@@ -1,516 +1,366 @@
 
 import os
-import json
-import re
 import streamlit as st
-from PIL import Image
-from PyPDF2 import PdfReader
-from langchain.text_splitter import CharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
-from langchain.llms import OpenAI
-from langchain.chains.question_answering import load_qa_chain
-import platform
+import base64
+from openai import OpenAI
 
-# =====================================================
-# DISEÑO
-# =====================================================
+# Función para codificar la imagen en base64
+def encode_image(image_file):
+    return base64.b64encode(image_file.getvalue()).decode("utf-8")
 
+
+# Configuración de la página
 st.set_page_config(
-    page_title="DocuMind AI",
-    page_icon="📚",
-    layout="wide"
+    page_title="Análisis de imagen",
+    layout="centered",
+    initial_sidebar_state="collapsed"
 )
 
+# ==========================================================
+# DISEÑO VISUAL PERSONALIZADO (CSS)
+# ==========================================================
 st.markdown("""
 <style>
+/* Fondo general */
 .stApp {
-    background: #f3f6fc;
+    background: linear-gradient(
+        135deg,
+        #101827 0%,
+        #17243A 55%,
+        #101827 100%
+    );
+    color: #F8FAFC;
 }
-[data-testid="stSidebar"] {
-    background: #14213d;
+
+/* Contenedor principal */
+.block-container {
+    max-width: 950px;
+    padding-top: 2.5rem;
+    padding-bottom: 3rem;
 }
-[data-testid="stSidebar"] * {
-    color: white;
+
+/* Título */
+h1 {
+    color: #FFFFFF !important;
+    font-size: 2.5rem !important;
+    font-weight: 800 !important;
+    text-align: center;
+    letter-spacing: -1px;
+    padding-bottom: 1rem;
 }
-.hero {
-    background: linear-gradient(120deg, #14213d, #315b9b);
-    padding: 30px;
-    border-radius: 18px;
-    color: white;
-    margin-bottom: 25px;
+
+/* Encabezados */
+h2, h3, h4 {
+    color: #F8FAFC !important;
+    font-weight: 700 !important;
 }
-.hero h1 {
-    color: white;
-    font-size: 34px;
+
+/* Texto general y etiquetas */
+.stApp p,
+.stApp label,
+.stMarkdown,
+.stCaption,
+[data-testid="stWidgetLabel"] p {
+    color: #E2E8F0 !important;
 }
-.hero p {
-    color: #e0eaff;
+
+/* Campo de API Key */
+.stTextInput input,
+.stTextArea textarea {
+    background-color: #0B1220 !important;
+    color: #FFFFFF !important;
+    border: 1px solid #64748B !important;
+    border-radius: 10px !important;
+    caret-color: #FFFFFF;
 }
-.card {
-    background: white;
-    padding: 22px;
-    border-radius: 16px;
-    border: 1px solid #dfe7f3;
-    margin-bottom: 15px;
+
+/* Texto de ayuda */
+.stTextInput input::placeholder,
+.stTextArea textarea::placeholder {
+    color: #CBD5E1 !important;
+    opacity: 1 !important;
 }
-div.stButton > button {
-    border-radius: 10px;
-    font-weight: bold;
-    min-height: 42px;
+
+/* Enfoque de los campos */
+.stTextInput input:focus,
+.stTextArea textarea:focus {
+    border: 1px solid #38BDF8 !important;
+    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2) !important;
+}
+
+/* Botones principales */
+.stButton > button {
+    background: linear-gradient(
+        90deg,
+        #0284C7,
+        #2563EB
+    ) !important;
+    color: #FFFFFF !important;
+    border: 1px solid #60A5FA !important;
+    border-radius: 12px !important;
+    padding: 0.65rem 1.5rem !important;
+    font-weight: 700 !important;
+    min-height: 45px;
+    transition: all 0.2s ease-in-out;
+}
+
+/* Texto de los botones */
+.stButton > button p {
+    color: #FFFFFF !important;
+    font-weight: 700 !important;
+}
+
+/* Efecto hover */
+.stButton > button:hover {
+    background: linear-gradient(
+        90deg,
+        #0369A1,
+        #1D4ED8
+    ) !important;
+    border-color: #BFDBFE !important;
+    transform: translateY(-2px);
+}
+
+/* Interruptor */
+[data-testid="stToggle"] label,
+[data-testid="stToggle"] p {
+    color: #F8FAFC !important;
+}
+
+/* Paneles desplegables */
+[data-testid="stExpander"] {
+    background-color: #1E293B !important;
+    border: 1px solid #475569 !important;
+    border-radius: 14px !important;
+    overflow: hidden;
+}
+
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] summary p {
+    color: #FFFFFF !important;
+    font-weight: 600 !important;
+}
+
+/* Imagen */
+[data-testid="stImage"] {
+    background-color: #0B1220;
+    padding: 10px;
+    border: 1px solid #475569;
+    border-radius: 14px;
+}
+
+/* Cargador de archivos */
+[data-testid="stFileUploader"] {
+    background-color: #1E293B;
+    border: 1px dashed #64748B;
+    border-radius: 14px;
+    padding: 15px;
+}
+
+[data-testid="stFileUploader"] section,
+[data-testid="stFileUploader"] small,
+[data-testid="stFileUploader"] span,
+[data-testid="stFileUploader"] p {
+    color: #F1F5F9 !important;
+}
+
+/* Botón del cargador */
+[data-testid="stFileUploader"] button {
+    background-color: #334155 !important;
+    color: #FFFFFF !important;
+    border: 1px solid #94A3B8 !important;
+    border-radius: 8px !important;
+}
+
+/* Área de respuesta */
+[data-testid="stMarkdownContainer"] {
+    color: #F1F5F9;
+    line-height: 1.75;
+}
+
+/* Texto en negrita de las respuestas */
+[data-testid="stMarkdownContainer"] strong {
+    color: #FFFFFF !important;
+}
+
+/* Alertas y mensajes */
+[data-testid="stAlert"] {
+    border-radius: 12px;
+    border: 1px solid #64748B;
+}
+
+[data-testid="stAlert"] p {
+    color: #FFFFFF !important;
+}
+
+/* Indicador de carga */
+[data-testid="stSpinner"] p {
+    color: #FDE68A !important;
+    font-weight: 600;
+}
+
+/* Separadores */
+hr {
+    border-color: #475569 !important;
+}
+
+/* Selección de texto */
+::selection {
+    background-color: #0369A1;
+    color: #FFFFFF;
+}
+
+/* Diseño adaptable a móviles */
+@media (max-width: 640px) {
+    .block-container {
+        padding-top: 1.2rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    h1 {
+        font-size: 1.8rem !important;
+    }
+
+    .stButton > button {
+        width: 100%;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("""
-<div class="hero">
-    <h1>📚 DocuMind AI</h1>
-    <p>Tu asistente inteligente para analizar documentos PDF.</p>
-    <p>💬 Chat · 📝 Resúmenes · 🧠 Cuestionarios</p>
-</div>
-""", unsafe_allow_html=True)
 
-st.write("Versión de Python:", platform.python_version())
+# ==========================================================
+# APLICACIÓN ORIGINAL
+# ==========================================================
 
-try:
-    image = Image.open("Chat_pdf.png")
-    st.image(image, width=250)
-except Exception:
-    pass
+st.title("Análisis de Imagen: 🤖🏞️")
 
-# =====================================================
-# BARRA LATERAL ORIGINAL
-# =====================================================
+ke = st.text_input(
+    "Ingresa tu Clave",
+    type="password",
+    placeholder="Introduce tu API key de OpenAI"
+)
 
-with st.sidebar:
-    st.subheader("📄 Analizador inteligente de documentos")
-    st.write("Carga un PDF y analiza su contenido.")
+os.environ["OPENAI_API_KEY"] = ke
 
-ke = st.text_input("Ingresa tu Clave de OpenAI", type="password")
+# Recuperar API Key
+api_key = os.environ["OPENAI_API_KEY"]
 
-if ke:
-    os.environ["OPENAI_API_KEY"] = ke
-else:
-    st.warning("Por favor ingresa tu clave de API de OpenAI para continuar")
+# Inicializar cliente de OpenAI
+client = OpenAI(api_key=api_key) if api_key else None
 
-pdf = st.file_uploader("📂 Carga el archivo PDF", type="pdf")
+# Carga de imágenes
+uploaded_file = st.file_uploader(
+    "Sube una imagen",
+    type=["jpg", "png", "jpeg"]
+)
 
-
-# =====================================================
-# ESTADO DE SESIÓN
-# =====================================================
-
-for key, default in {
-    "pdf_hash": None,
-    "texto": "",
-    "fragmentos": [],
-    "base": None,
-    "resumen": None,
-    "preguntas": [],
-    "resultado": None,
-    "respuestas": {},
-    "historial": []
-}.items():
-    if key not in st.session_state:
-        st.session_state[key] = default
-
-
-# =====================================================
-# FUNCIONES NUEVAS
-# =====================================================
-
-def generar_resumen(fragmentos):
-    modelo = OpenAI(
-        temperature=0,
-        model_name="gpt-3.5-turbo-instruct"
-    )
-
-    resumenes = []
-
-    instrucciones = """
-    Resume el texto en español.
-    Incluye las ideas principales, los conceptos importantes
-    y las conclusiones. No inventes información.
-    """
-
-    for inicio in range(0, len(fragmentos), 6):
-        bloque = "\n\n".join(fragmentos[inicio:inicio + 6])
-        resumen = modelo.predict(
-            instrucciones + "\n\nDocumento:\n" + bloque
+if uploaded_file:
+    with st.expander("Imagen cargada", expanded=True):
+        st.image(
+            uploaded_file,
+            caption=uploaded_file.name,
+            use_container_width=True
         )
-        resumenes.append(resumen)
 
-    if len(resumenes) == 1:
-        return resumenes[0]
+# Interruptor para contexto adicional
+show_details = st.toggle(
+    "Pregunta algo específico sobre la imagen",
+    value=False
+)
 
-    return modelo.predict(
-        "Combina estos resúmenes en uno solo, claro y organizado. "
-        "No repitas ideas ni inventes información:\n\n"
-        + "\n\n".join(resumenes)
+# Inicializar el contexto para evitar variables no definidas
+additional_details = ""
+
+if show_details:
+    additional_details = st.text_area(
+        "Añade contexto o escribe tu pregunta aquí:",
+        placeholder="Ejemplo: ¿Qué objetos aparecen en el fondo?",
+        disabled=not show_details
     )
 
+# Botón de análisis
+analyze_button = st.button(
+    "🔍 Analiza la imagen",
+    type="secondary",
+    use_container_width=True
+)
 
-def generar_cuestionario(fragmentos, cantidad):
-    modelo = OpenAI(
-        temperature=0,
-        model_name="gpt-3.5-turbo-instruct"
-    )
+# Validación y análisis
+if analyze_button:
 
-    contenido = "\n\n".join(fragmentos[:35])
+    if not uploaded_file:
+        st.warning("Por favor, sube una imagen.")
 
-    instrucciones = f"""
-    Genera exactamente {cantidad} preguntas de selección múltiple
-    basadas únicamente en el documento.
+    elif not api_key:
+        st.warning("Por favor, ingresa tu API key.")
 
-    Cada pregunta debe tener cuatro opciones: A, B, C y D,
-    una respuesta correcta y una explicación breve.
+    else:
+        with st.spinner("Analizando la imagen..."):
 
-    Devuelve exclusivamente JSON válido con esta estructura:
-    {{
-      "preguntas": [
-        {{
-          "pregunta": "Pregunta",
-          "opciones": {{
-            "A": "Opción A",
-            "B": "Opción B",
-            "C": "Opción C",
-            "D": "Opción D"
-          }},
-          "correcta": "A",
-          "explicacion": "Explicación"
-        }}
-      ]
-    }}
-    """
+            # Codificar la imagen
+            base64_image = encode_image(uploaded_file)
 
-    resultado = modelo.predict(
-        instrucciones + "\n\nDOCUMENTO:\n" + contenido
-    ).strip()
-
-    resultado = re.sub(r"^```(?:json)?\s*", "", resultado)
-    resultado = re.sub(r"\s*```$", "", resultado)
-
-    datos = json.loads(resultado)
-    preguntas = datos.get("preguntas", [])
-
-    validas = []
-
-    for pregunta in preguntas:
-        opciones = pregunta.get("opciones", {})
-        correcta = pregunta.get("correcta", "")
-
-        if (
-            pregunta.get("pregunta")
-            and all(letra in opciones for letra in "ABCD")
-            and correcta in ["A", "B", "C", "D"]
-        ):
-            validas.append(pregunta)
-
-    if not validas:
-        raise ValueError("No se generaron preguntas válidas.")
-
-    return validas
-
-
-# =====================================================
-# PROCESAMIENTO DEL PDF ORIGINAL
-# =====================================================
-
-if pdf is not None and ke:
-    try:
-        contenido_pdf = pdf.getvalue()
-        import hashlib
-        hash_actual = hashlib.sha256(contenido_pdf).hexdigest()
-
-        if hash_actual != st.session_state["pdf_hash"]:
-            from io import BytesIO
-
-            pdf_reader = PdfReader(BytesIO(contenido_pdf))
-            text = ""
-
-            for page in pdf_reader.pages:
-                text += page.extract_text() or ""
-
-            if not text.strip():
-                st.error(
-                    "No se encontró texto en el PDF. "
-                    "Si es escaneado, necesitas OCR."
-                )
-                st.stop()
-
-            st.info(f"Texto extraído: {len(text)} caracteres")
-
-            text_splitter = CharacterTextSplitter(
-                separator="\n",
-                chunk_size=500,
-                chunk_overlap=20,
-                length_function=len
+            # Preparar el prompt
+            prompt_text = (
+                "Describe lo que ves en la imagen en español."
             )
 
-            chunks = text_splitter.split_text(text)
-
-            st.success(f"Documento dividido en {len(chunks)} fragmentos")
-
-            embeddings = OpenAIEmbeddings()
-            knowledge_base = FAISS.from_texts(chunks, embeddings)
-
-            st.session_state.update({
-                "pdf_hash": hash_actual,
-                "texto": text,
-                "fragmentos": chunks,
-                "base": knowledge_base,
-                "resumen": None,
-                "preguntas": [],
-                "resultado": None,
-                "respuestas": {},
-                "historial": []
-            })
-
-        text = st.session_state["texto"]
-        chunks = st.session_state["fragmentos"]
-        knowledge_base = st.session_state["base"]
-
-        # =================================================
-        # ESTADÍSTICAS VISUALES
-        # =================================================
-
-        st.markdown("## 📊 Información del documento")
-
-        c1, c2, c3 = st.columns(3)
-
-        c1.metric("📄 Páginas", len(PdfReader(pdf).pages))
-        c2.metric("🧩 Fragmentos", len(chunks))
-        c3.metric("🔤 Caracteres", f"{len(text):,}")
-
-        # =================================================
-        # PESTAÑAS
-        # =================================================
-
-        tab_chat, tab_resumen, tab_quiz = st.tabs([
-            "💬 Chat con PDF",
-            "📝 Resumen automático",
-            "🧠 Cuestionario"
-        ])
-
-        # =================================================
-        # CHAT ORIGINAL
-        # =================================================
-
-        with tab_chat:
-            st.subheader("💬 Pregunta sobre tu documento")
-
-            with st.form("form_chat"):
-                user_question = st.text_area(
-                    "Escribe tu pregunta",
-                    placeholder="¿Cuáles son las ideas principales?"
+            if show_details and additional_details.strip():
+                prompt_text += (
+                    "\n\nContexto o pregunta adicional del usuario:\n"
+                    + additional_details
                 )
 
-                enviar = st.form_submit_button(
-                    "🔎 Consultar documento",
-                    type="primary"
-                )
+            # Detectar el formato real de la imagen
+            mime_type = uploaded_file.type or "image/jpeg"
 
-            if enviar and user_question.strip():
-                docs = knowledge_base.similarity_search(user_question)
-
-                llm = OpenAI(
-                    temperature=0,
-                    model_name="gpt-3.5-turbo-instruct"
-                )
-
-                chain = load_qa_chain(llm, chain_type="stuff")
-
-                response = chain.run(
-                    input_documents=docs,
-                    question=user_question
-                )
-
-                st.session_state["historial"].append({
-                    "pregunta": user_question,
-                    "respuesta": response
-                })
-
-            for mensaje in reversed(st.session_state["historial"]):
-                with st.container(border=True):
-                    st.markdown(f"**🙋 Pregunta:** {mensaje['pregunta']}")
-                    st.markdown("**🤖 Respuesta:**")
-                    st.markdown(mensaje["respuesta"])
-
-            if st.session_state["historial"]:
-                if st.button("🗑️ Limpiar conversación"):
-                    st.session_state["historial"] = []
-                    st.rerun()
-
-        # =================================================
-        # RESUMEN AUTOMÁTICO
-        # =================================================
-
-        with tab_resumen:
-            st.markdown("""
-            <div class="card">
-                <h3>📝 Resumen inteligente</h3>
-                <p>Descubre las ideas principales y conclusiones
-                de tu documento sin leerlo por completo.</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            if st.button(
-                "✨ Generar resumen del PDF",
-                type="primary",
-                use_container_width=True
-            ):
-                try:
-                    with st.spinner("Analizando el documento..."):
-                        st.session_state["resumen"] = generar_resumen(chunks)
-                except Exception as e:
-                    st.error(f"Error generando resumen: {e}")
-
-            if st.session_state["resumen"]:
-                st.markdown("### 📖 Resultado")
-                st.markdown(st.session_state["resumen"])
-
-                st.download_button(
-                    "⬇️ Descargar resumen",
-                    data=st.session_state["resumen"],
-                    file_name="resumen_pdf.txt",
-                    mime="text/plain"
-                )
-
-        # =================================================
-        # GENERADOR DE CUESTIONARIOS
-        # =================================================
-
-        with tab_quiz:
-            st.markdown("""
-            <div class="card">
-                <h3>🧠 Pon a prueba tus conocimientos</h3>
-                <p>Genera preguntas basadas en el PDF,
-                responde y recibe tu puntuación.</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            cantidad = st.selectbox(
-                "Cantidad de preguntas",
-                [3, 5, 10],
-                index=1
-            )
-
-            if st.button(
-                "🎯 Generar cuestionario",
-                type="primary",
-                use_container_width=True
-            ):
-                try:
-                    with st.spinner("Creando preguntas..."):
-                        st.session_state["preguntas"] = generar_cuestionario(
-                            chunks, cantidad
-                        )
-                        st.session_state["resultado"] = None
-                        st.session_state["respuestas"] = {}
-                except Exception as e:
-                    st.error(f"Error generando cuestionario: {e}")
-
-            preguntas = st.session_state["preguntas"]
-
-            if preguntas:
-                with st.form("form_quiz"):
-                    respuestas = {}
-
-                    for i, pregunta in enumerate(preguntas):
-                        st.markdown(f"#### Pregunta {i + 1}")
-                        st.write(pregunta["pregunta"])
-
-                        opciones = pregunta["opciones"]
-
-                        respuestas[i] = st.radio(
-                            "Elige una respuesta",
-                            ["A", "B", "C", "D"],
-                            format_func=lambda letra, ops=opciones:
-                                f"{letra}. {ops[letra]}",
-                            key=f"quiz_{hash_actual}_{i}",
-                            index=None
-                        )
-
-                        st.divider()
-
-                    calificar = st.form_submit_button(
-                        "✅ Calificar cuestionario",
-                        type="primary",
-                        use_container_width=True
-                    )
-
-                if calificar:
-                    if any(v is None for v in respuestas.values()):
-                        st.warning("Responde todas las preguntas.")
-                    else:
-                        aciertos = sum(
-                            respuestas[i] == p["correcta"]
-                            for i, p in enumerate(preguntas)
-                        )
-
-                        st.session_state["respuestas"] = respuestas
-                        st.session_state["resultado"] = {
-                            "aciertos": aciertos,
-                            "total": len(preguntas)
+            # Preparar los mensajes
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt_text
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": (
+                                    f"data:{mime_type};base64,"
+                                    f"{base64_image}"
+                                )
+                            }
                         }
+                    ]
+                }
+            ]
 
-                resultado = st.session_state["resultado"]
+            # Solicitud a OpenAI y respuesta en streaming
+            try:
+                full_response = ""
+                message_placeholder = st.empty()
 
-                if resultado:
-                    porcentaje = round(
-                        resultado["aciertos"] /
-                        resultado["total"] * 100
-                    )
+                for completion in client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=messages,
+                    max_tokens=1200,
+                    stream=True
+                ):
+                    if completion.choices[0].delta.content is not None:
+                        full_response += (
+                            completion.choices[0].delta.content
+                        )
 
-                    st.markdown("### 🏆 Resultados")
-                    col1, col2 = st.columns(2)
+                        message_placeholder.markdown(
+                            full_response + "▌"
+                        )
 
-                    col1.metric("Puntuación", f"{porcentaje}%")
-                    col2.metric(
-                        "Respuestas correctas",
-                        f"{resultado['aciertos']} de {resultado['total']}"
-                    )
+                # Mostrar respuesta final
+                message_placeholder.markdown(full_response)
 
-                    st.progress(porcentaje / 100)
-
-                    if porcentaje >= 80:
-                        st.success("¡Excelente trabajo!")
-                    elif porcentaje >= 60:
-                        st.info("Buen trabajo. Sigue practicando.")
-                    else:
-                        st.warning("Repasa el documento e inténtalo de nuevo.")
-
-                    st.markdown("### 📋 Revisión de respuestas")
-
-                    for i, pregunta in enumerate(preguntas):
-                        respuesta = st.session_state["respuestas"][i]
-                        correcta = pregunta["correcta"]
-
-                        with st.expander(
-                            f"{'✅' if respuesta == correcta else '❌'} "
-                            f"Pregunta {i + 1}"
-                        ):
-                            st.write(pregunta["pregunta"])
-                            st.write(
-                                f"Tu respuesta: {respuesta}. "
-                                f"{pregunta['opciones'][respuesta]}"
-                            )
-                            st.write(
-                                f"Respuesta correcta: {correcta}. "
-                                f"{pregunta['opciones'][correcta]}"
-                            )
-                            st.write(pregunta.get("explicacion", ""))
-
-    except Exception as e:
-        st.error(f"Error al procesar el PDF: {str(e)}")
-
-elif pdf is not None and not ke:
-    st.warning("Por favor ingresa tu clave de API de OpenAI para continuar")
-
-else:
-    st.info("📂 Carga un archivo PDF para comenzar.")
-
-st.markdown("---")
-st.caption("📚 DocuMind AI | Chat, resúmenes y cuestionarios")
-
+            except Exception as e:
+                st.error(f"Ocurrió un error: {e}")
 
